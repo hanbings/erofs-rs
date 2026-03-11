@@ -69,12 +69,17 @@ fn main() -> erofs_rs::Result<()> {
 ## Feature Flags
 
 - `std` (default): Enables standard library support, including mmap backend
+- `opendal`: Enables async I/O via [Apache OpenDAL](https://opendal.apache.org/), supporting remote backends (HTTP, S3, etc.)
 - Without `std`: Operates in `no_std` mode with `alloc`
 
 ```toml
 # Standard usage (default)
 [dependencies]
 erofs-rs = "0.1"
+
+# Async with OpenDAL
+[dependencies]
+erofs-rs = { version = "0.1", features = ["opendal"] }
 
 # no_std with alloc
 [dependencies]
@@ -95,6 +100,11 @@ erofs-cli inspect -i image.erofs cat /etc/passwd
 
 # Convert to tar
 erofs-cli convert image.erofs -o out.tar
+
+# Remote images via HTTP (async OpenDAL backend)
+erofs-cli dump http://example.com/images/system.erofs
+erofs-cli inspect -i http://example.com/images/system.erofs ls /
+erofs-cli inspect -i http://example.com/images/system.erofs cat /etc/os-release
 ```
 
 ## Status
