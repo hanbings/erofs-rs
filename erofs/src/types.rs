@@ -313,7 +313,7 @@ impl InodeExtended {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum DirentFileType {
     Unknown = 0,
     RegularFile = 1,

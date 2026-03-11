@@ -30,9 +30,9 @@ pub enum BlockPlan {
     Chunked {
         addr_offset: usize,
         chunk_fixed: usize,
+        chunk_size: usize,
         data_size: usize,
         chunk_index: usize,
-        chunk_count: usize,
     },
 }
 
@@ -156,9 +156,9 @@ impl EroFSCore {
                 Ok(BlockPlan::Chunked {
                     addr_offset,
                     chunk_fixed,
+                    chunk_size,
                     data_size: inode.data_size(),
                     chunk_index,
-                    chunk_count,
                 })
             }
         }
@@ -167,35 +167,31 @@ impl EroFSCore {
     /// Resolve the final read offset and size for a chunk-based block read.
     ///
     /// `chunk_addr` is the i32 value read from `addr_offset` in the `Chunked` plan.
+    /// `chunk_size` is the full chunk size in bytes (may span multiple blocks).
     pub(crate) fn resolve_chunk_read(
         &self,
         chunk_addr: i32,
         chunk_fixed: usize,
+        chunk_size: usize,
         data_size: usize,
         chunk_index: usize,
-        chunk_count: usize,
     ) -> Result<(usize, usize)> {
-        let chunk_size = if chunk_index == chunk_count - 1 {
-            data_size % self.block_size
-        } else {
-            self.block_size
-        };
-
-        if chunk_size > self.block_size {
-            return Err(Error::CorruptedData(format!(
-                "invalid chunk size {} for chunk index {}",
-                chunk_size, chunk_index
-            )));
-        }
-
         if chunk_addr <= 0 {
             return Err(Error::CorruptedData(
                 "sparse chunks are not supported".to_string(),
             ));
         }
 
+        let file_byte_offset = chunk_index * chunk_size + chunk_fixed * self.block_size;
+        let remaining = data_size.saturating_sub(file_byte_offset);
+        let read_size = remaining.min(self.block_size);
+
+        if read_size == 0 {
+            return Err(Error::OutOfRange(file_byte_offset, data_size));
+        }
+
         let offset = self.block_offset(chunk_addr as u32 + chunk_fixed as u32) as usize;
-        Ok((offset, chunk_size))
+        Ok((offset, read_size))
     }
 
     pub(crate) fn get_inode_offset(&self, nid: u64) -> u64 {

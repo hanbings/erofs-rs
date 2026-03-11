@@ -80,12 +80,12 @@ pub async fn dump(args: DumpArgs) -> Result<()> {
         "Filesystem inode count:                       {}",
         block.inos
     );
+    let created = DateTime::from_timestamp(block.build_time as i64, block.build_time_ns)
+        .map(|dt| dt.with_timezone(&Local).format("%a %b %e %H:%M:%S %Y").to_string())
+        .unwrap_or_else(|| format!("<invalid timestamp: {}.{}>", block.build_time, block.build_time_ns));
     println!(
         "Filesystem created:                           {}",
-        DateTime::from_timestamp(block.build_time as i64, block.build_time_ns)
-            .unwrap()
-            .with_timezone(&Local)
-            .format("%a %b %e %H:%M:%S %Y")
+        created
     );
     println!(
         "Filesystem features:                          {}",

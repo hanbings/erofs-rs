@@ -167,12 +167,12 @@ pub struct DirEntry {
 impl DirEntry {
     /// Returns the file type of this entry.
     pub fn file_type(&self) -> DirentFileType {
-        self.file_type.clone()
+        self.file_type
     }
 
     /// Returns the file name of this entry.
-    pub fn file_name(&self) -> String {
-        self.file_name.clone()
+    pub fn file_name(&self) -> &str {
+        &self.file_name
     }
 
     /// Returns the full path of this entry.

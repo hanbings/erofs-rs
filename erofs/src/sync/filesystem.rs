@@ -161,9 +161,9 @@ impl<I: Image> EroFS<I> {
             BlockPlan::Chunked {
                 addr_offset,
                 chunk_fixed,
+                chunk_size,
                 data_size,
                 chunk_index,
-                chunk_count,
             } => {
                 let chunk_addr = self
                     .image
@@ -174,9 +174,9 @@ impl<I: Image> EroFS<I> {
                 let (offset, size) = self.core.resolve_chunk_read(
                     chunk_addr,
                     chunk_fixed,
+                    chunk_size,
                     data_size,
                     chunk_index,
-                    chunk_count,
                 )?;
                 self.image
                     .get(offset..offset + size)

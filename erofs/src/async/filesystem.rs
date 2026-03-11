@@ -107,9 +107,9 @@ impl<I: AsyncImage> EroFS<I> {
             BlockPlan::Chunked {
                 addr_offset,
                 chunk_fixed,
+                chunk_size,
                 data_size,
                 chunk_index,
-                chunk_count,
             } => {
                 let mut addr_buf = vec![0u8; 4];
                 self.image.read_exact_at(&mut addr_buf, addr_offset).await?;
@@ -118,9 +118,9 @@ impl<I: AsyncImage> EroFS<I> {
                 let (offset, size) = self.core.resolve_chunk_read(
                     chunk_addr,
                     chunk_fixed,
+                    chunk_size,
                     data_size,
                     chunk_index,
-                    chunk_count,
                 )?;
                 let mut buf = vec![0u8; size];
                 self.image.read_exact_at(&mut buf, offset).await?;
