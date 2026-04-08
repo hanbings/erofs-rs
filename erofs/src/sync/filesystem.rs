@@ -1,4 +1,4 @@
-use alloc::{format, string::ToString, sync::Arc};
+use alloc::{format, string::String, string::ToString, sync::Arc, vec::Vec};
 use bytes::Buf;
 use typed_path::Component;
 use typed_path::{UnixComponent, UnixPath};
@@ -183,6 +183,32 @@ impl<I: Image> EroFS<I> {
                     .ok_or_else(|| Error::OutOfBounds("failed to get inode data".to_string()))
             }
         }
+    }
+
+    /// Returns all inline extended attributes for the given inode as `(name, value)` pairs.
+    ///
+    /// The attribute name is the fully-qualified name (e.g. `"user.myattr"`).
+    /// Shared xattr entries (stored in the shared xattr block) are not included — those
+    /// require a separate lookup and will be implemented later.
+    ///
+    /// Returns an empty `Vec` when the inode has no xattrs.
+    pub fn get_xattrs(&self, inode: &Inode) -> Result<Vec<(String, Vec<u8>)>> {
+        let xattr_size = inode.xattr_size();
+        if xattr_size == 0 {
+            return Ok(Vec::new());
+        }
+        let offset = self.core.xattr_area_offset(inode);
+        let data = self
+            .image
+            .get(offset..offset + xattr_size)
+            .ok_or_else(|| Error::OutOfBounds("failed to read xattr area".to_string()))?;
+        self.core.parse_inline_xattrs(inode, data)
+    }
+
+    /// Returns the inode at the given path, or an error if the path does not exist.
+    pub fn get_inode_by_path<P: AsRef<UnixPath>>(&self, path: P) -> Result<Inode> {
+        self.get_path_inode(&path)?
+            .ok_or_else(|| Error::PathNotFound(path.as_ref().to_string_lossy().into_owned()))
     }
 
     pub(crate) fn get_path_inode<P: AsRef<UnixPath>>(&self, path: P) -> Result<Option<Inode>> {

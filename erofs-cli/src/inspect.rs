@@ -30,6 +30,9 @@ enum InspectSubcommands {
     Cat {
         path: String,
     },
+    Xattr {
+        path: String,
+    },
 }
 
 pub async fn inspect(args: InspectArgs) -> Result<()> {
@@ -44,6 +47,7 @@ pub async fn inspect(args: InspectArgs) -> Result<()> {
         match args.operation {
             InspectSubcommands::Ls { path } => ls_async(&fs, &path).await?,
             InspectSubcommands::Cat { path } => cat_async(&fs, &path).await?,
+            InspectSubcommands::Xattr { path } => xattr_async(&fs, &path).await?,
         }
     } else {
         // Sync path for local files
@@ -53,6 +57,7 @@ pub async fn inspect(args: InspectArgs) -> Result<()> {
         match args.operation {
             InspectSubcommands::Ls { path } => ls(&fs, &path)?,
             InspectSubcommands::Cat { path } => cat(&fs, &path)?,
+            InspectSubcommands::Xattr { path } => xattr(&fs, &path)?,
         }
     }
 
@@ -188,6 +193,52 @@ async fn cat_async<I: AsyncImage>(fs: &AsyncEroFS<I>, path: &str) -> Result<()> 
             break;
         }
         std::io::Write::write_all(&mut stdout, &buffer[..n])?;
+    }
+
+    Ok(())
+}
+
+fn xattr<I: Image>(fs: &EroFS<I>, path: &str) -> Result<()> {
+    let inode = fs
+        .get_inode_by_path(path)
+        .with_context(|| format!("path not found: {}", path))?;
+    let xattrs = fs
+        .get_xattrs(&inode)
+        .with_context(|| format!("failed to read xattrs for: {}", path))?;
+
+    if xattrs.is_empty() {
+        println!("(no xattrs)");
+    } else {
+        for (name, value) in &xattrs {
+            match std::str::from_utf8(value) {
+                Ok(s) => println!("{}={}", name, s),
+                Err(_) => println!("{}=<{} bytes>", name, value.len()),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn xattr_async<I: AsyncImage>(fs: &AsyncEroFS<I>, path: &str) -> Result<()> {
+    let inode = fs
+        .get_inode_by_path(path)
+        .await
+        .with_context(|| format!("path not found: {}", path))?;
+    let xattrs = fs
+        .get_xattrs(&inode)
+        .await
+        .with_context(|| format!("failed to read xattrs for: {}", path))?;
+
+    if xattrs.is_empty() {
+        println!("(no xattrs)");
+    } else {
+        for (name, value) in &xattrs {
+            match std::str::from_utf8(value) {
+                Ok(s) => println!("{}={}", name, s),
+                Err(_) => println!("{}=<{} bytes>", name, value.len()),
+            }
+        }
     }
 
     Ok(())
