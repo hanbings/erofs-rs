@@ -18,6 +18,23 @@ pub const LAYOUT_CHUNK_FORMAT_INDEXES: u16 = 0x0020;
 
 pub const SB_EXTSLOT_SIZE: usize = 16;
 
+/// `feature_compat` flags
+pub const FEATURE_COMPAT_PLAIN_XATTR_PFX: u32 = 0x00000010;
+
+/// `EROFS_XATTR_INDEX_*` constants from erofs_fs.h "Name indexes"
+pub mod xattr_index {
+    pub const USER: u8             = 1;
+    pub const POSIX_ACL_ACCESS: u8 = 2;
+    pub const POSIX_ACL_DEFAULT: u8 = 3;
+    pub const TRUSTED: u8          = 4;
+    pub const LUSTRE: u8           = 5;
+    pub const SECURITY: u8         = 6;
+    /// bit 7 set → use long prefix table
+    pub const LONG_PREFIX: u8      = 0x80;
+    /// mask to get index into prefix table
+    pub const LONG_PREFIX_MASK: u8 = 0x7f;
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, BinRead)]
 #[br(little)]
@@ -413,19 +430,16 @@ pub struct XattrEntry {
     pub value_len: u16,
 }
 
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy, BinRead)]
-#[br(little)]
-pub struct XattrLongPrefixItem {
-    pub prefix_addr: u32,
-    pub prefix_len: u8,
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy, BinRead)]
-#[br(little)]
+/// Runtime representation of a long xattr name prefix entry.
+///
+/// On disk at `xattr_prefix_start << 2`, each entry is a length-prefixed blob:
+/// `[ u16 len ][ u8 base_index ][ infix bytes (len-1) ]`
+///
+/// Corresponds to kernel `erofs_xattr_long_prefix` + `erofs_xattr_prefix_item`.
+#[derive(Debug, Clone)]
 pub struct XattrLongPrefix {
     pub base_index: u8,
+    pub infix: alloc::vec::Vec<u8>,
 }
 
 #[repr(C)]

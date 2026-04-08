@@ -1,4 +1,4 @@
-use alloc::{format, string::ToString};
+use alloc::{format, string::ToString, vec::Vec};
 
 use binrw::BinRead;
 use binrw::BinReaderExt;
@@ -66,6 +66,67 @@ impl EroFSCore {
             super_block,
             block_size,
         })
+    }
+
+    // xattr prefix table
+
+    /// Returns true if the long xattr prefix table is stored directly in the
+    /// main image (COMPAT_PLAIN_XATTR_PFX feature).
+    ///
+    /// When false, prefixes are stored in the packed inode's data instead.
+    /// Corresponds to kernel `erofs_sb_has_plain_xattr_pfx(sbi)`.
+    pub(crate) fn has_plain_xattr_prefix(&self) -> bool {
+        self.super_block.feature_compat & FEATURE_COMPAT_PLAIN_XATTR_PFX != 0
+    }
+
+    /// Byte offset in the image where the long xattr prefix table starts.
+    ///
+    /// Corresponds to kernel: `pos = (erofs_off_t)sbi->xattr_prefix_start << 2`
+    pub(crate) fn xattr_prefix_table_offset(&self) -> usize {
+        (self.super_block.xattr_prefix_start as usize) << 2
+    }
+
+    /// Parse the long xattr prefix table from raw bytes.
+    ///
+    /// `data` starts at `xattr_prefix_table_offset()`.
+    /// `count` comes from `super_block.xattr_prefix_count`.
+    ///
+    /// Each entry on disk: `[ u16 len ][ u8 base_index ][ infix bytes (len-1) ]`
+    /// 4-byte aligned between entries.
+    ///
+    /// Corresponds to kernel `erofs_xattr_prefixes_init()`.
+    pub(crate) fn parse_xattr_prefix_table(
+        _data: &[u8],
+        _count: usize,
+    ) -> Result<Vec<XattrLongPrefix>> {
+        todo!()
+    }
+
+    // shared xattr
+
+    /// Byte offset in the image for a shared xattr entry by its ID.
+    ///
+    /// Corresponds to kernel:
+    /// `it->pos = erofs_pos(sb, sbi->xattr_blkaddr) + shared_id * sizeof(__le32)`
+    pub(crate) fn shared_xattr_offset(&self, shared_id: u32) -> usize {
+        self.block_offset(self.super_block.xattr_blk_addr) as usize
+            + shared_id as usize * size_of::<u32>()
+    }
+
+    /// Parse a single shared xattr entry from raw bytes.
+    ///
+    /// `data` starts at `shared_xattr_offset(id)` and must cover at least
+    /// the full entry (`XattrEntry` header + name + value bytes).
+    /// Returns `(full_name_bytes, value_bytes)`.
+    ///
+    /// The entry format is identical to an inline xattr entry.
+    /// Corresponds to one iteration of `erofs_listxattr_foreach()` over
+    /// the shared xattr area.
+    pub(crate) fn parse_shared_xattr(
+        &self,
+        _data: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
+        todo!()
     }
 
     /// Parse an inode from raw bytes.
@@ -200,5 +261,118 @@ impl EroFSCore {
 
     pub(crate) fn block_offset(&self, block: u32) -> u64 {
         (block as u64) << self.super_block.blk_size_bits
+    }
+
+    // inline xattr
+
+    /// Byte offset of the xattr area for an inode.
+    /// = inode start + inode header size
+    /// Corresponds to kernel: `pos = erofs_iloc(inode) + vi->inode_isize`
+    pub(crate) fn xattr_area_offset(&self, inode: &Inode) -> usize {
+        self.get_inode_offset(inode.id()) as usize + inode.size()
+    }
+
+    /// Maps a standard xattr name index (1-6) to its prefix string.
+    /// Corresponds to kernel `erofs_xattr_prefix()` / `xattr_handler_map`.
+    fn xattr_short_prefix(name_index: u8) -> &'static str {
+        use crate::types::xattr_index;
+        match name_index {
+            xattr_index::USER               => "user.",
+            xattr_index::POSIX_ACL_ACCESS   => "system.posix_acl_access",
+            xattr_index::POSIX_ACL_DEFAULT  => "system.posix_acl_default",
+            xattr_index::TRUSTED            => "trusted.",
+            xattr_index::LUSTRE             => "lustre.",
+            xattr_index::SECURITY           => "security.",
+            _                      => "",
+        }
+    }
+
+    /// Parse all inline xattr entries for an inode.
+    /// Returns a list of (full name bytes, value bytes).
+    ///
+    /// `data` starts at `xattr_area_offset(inode)` and is at least
+    /// `inode.xattr_size()` bytes long.
+    ///
+    /// Corresponds to kernel `erofs_xattr_iter_inline()` +
+    /// `erofs_listxattr_foreach()`.
+    pub(crate) fn parse_inline_xattrs(
+        &self,
+        inode: &Inode,
+        data: &[u8],
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let total_size = inode.xattr_size();
+        if total_size == 0 {
+            return Ok(Vec::new());
+        }
+        if data.len() < total_size {
+            return Err(Error::CorruptedData(format!(
+                "xattr area truncated: need {} bytes, got {}",
+                total_size,
+                data.len()
+            )));
+        }
+
+        let mut cursor = binrw::io::Cursor::new(data);
+        let header = XattrHeader::read(&mut cursor)?;
+
+        use crate::types::xattr_index;
+        let header_sz =
+            size_of::<XattrHeader>() + header.shared_count as usize * size_of::<u32>();
+        if header_sz > total_size {
+            return Err(Error::CorruptedData(
+                "xattr shared_count overflows ibody area".to_string(),
+            ));
+        }
+
+        let mut remaining = total_size - header_sz;
+        let mut ptr = header_sz;
+        let mut result = Vec::new();
+
+        while remaining > 0 {
+            if ptr + size_of::<XattrEntry>() > total_size {
+                return Err(Error::CorruptedData(
+                    "xattr entry header overflows ibody area".to_string(),
+                ));
+            }
+
+            cursor.set_position(ptr as u64);
+            let entry: XattrEntry = cursor.read_le()?;
+
+            let name_len  = entry.name_len as usize;
+            let value_len = entry.value_len as usize;
+
+            let entry_sz = (size_of::<XattrEntry>() + name_len + value_len + 3) & !3;
+            if remaining < entry_sz {
+                return Err(Error::CorruptedData(format!(
+                    "xattr entry overflows ibody area at ptr={}", ptr
+                )));
+            }
+            remaining -= entry_sz;
+
+            let name_start  = ptr + size_of::<XattrEntry>();
+            let value_start = name_start + name_len;
+            if value_start + value_len > total_size {
+                return Err(Error::CorruptedData(
+                    "xattr name/value overflows ibody area".to_string(),
+                ));
+            }
+
+            ptr += entry_sz;
+
+            if entry.name_index & xattr_index::LONG_PREFIX != 0 {
+                continue; // long prefix: needs prefix table, skip for now
+            }
+
+            let prefix = Self::xattr_short_prefix(entry.name_index);
+            let suffix = &data[name_start..value_start];
+            let mut name = Vec::with_capacity(prefix.len() + suffix.len());
+            name.extend_from_slice(prefix.as_bytes());
+            name.extend_from_slice(suffix);
+            let value = data[value_start..value_start + value_len].to_vec();
+
+            result.push((name, value));
+        }
+
+        Ok(result)
     }
 }
