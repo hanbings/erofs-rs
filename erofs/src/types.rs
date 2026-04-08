@@ -12,6 +12,7 @@ use crate::Error;
 
 pub const MAGIC_NUMBER: u32 = 0xe0f5e1e2;
 pub const SUPER_BLOCK_OFFSET: usize = 1024;
+pub const FEATURE_COMPAT_SB_CHKSUM: u32 = 0x0000_0001;
 
 pub const LAYOUT_CHUNK_FORMAT_BITS: u16 = 0x001F;
 pub const LAYOUT_CHUNK_FORMAT_INDEXES: u16 = 0x0020;

@@ -28,6 +28,7 @@ opendal = ["dep:opendal"]
 
 [dependencies]
 binrw = { workspace = true }
+crc32c = { workspace = true }
 bitflags = { workspace = true }
 bytes = { workspace = true }
 memmap2 = { workspace = true, default-features = true, optional = true }

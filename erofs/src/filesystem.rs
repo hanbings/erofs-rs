@@ -61,6 +61,28 @@ impl EroFSCore {
             )));
         }
 
+        if super_block.feature_compat & FEATURE_COMPAT_SB_CHKSUM != 0 {
+            // Skip .magic (4 bytes) and .checksum (4 bytes); checksum covers
+            // from .feature_compat to end of block.
+            // ref: fs/erofs/super.c erofs_superblock_csum_verify
+            let start = 8;
+            let block_size = 1usize << blk_size_bits;
+            let len = block_size - SUPER_BLOCK_OFFSET - start;
+            let buf = data.get(start..start + len).ok_or_else(|| {
+                Error::InvalidSuperblock("data too short for checksum".to_string())
+            })?;
+            // kernel: crc32c(0x5045B54A, data, len) uses seed as raw CRC register init.
+            // crc32c_append(crci, data) = !process(data, !crci), so:
+            // kernel_result = process(data, seed) = !crc32c_append(!seed, data)
+            let computed = !crc32c::crc32c_append(!0x5045B54A, buf);
+            if computed != super_block.checksum {
+                return Err(Error::InvalidSuperblock(format!(
+                    "checksum mismatch: expected 0x{:08x}, got 0x{:08x}",
+                    super_block.checksum, computed
+                )));
+            }
+        }
+
         let block_size = 1usize << blk_size_bits;
         Ok(Self {
             super_block,
