@@ -272,20 +272,6 @@ impl EroFSCore {
         self.get_inode_offset(inode.id()) as usize + inode.size()
     }
 
-    /// Maps a standard xattr name index (1-6) to its prefix string.
-    /// Corresponds to kernel `erofs_xattr_prefix()` / `xattr_handler_map`.
-    fn xattr_short_prefix(name_index: u8) -> &'static str {
-        use crate::types::xattr_index;
-        match name_index {
-            xattr_index::USER               => "user.",
-            xattr_index::POSIX_ACL_ACCESS   => "system.posix_acl_access",
-            xattr_index::POSIX_ACL_DEFAULT  => "system.posix_acl_default",
-            xattr_index::TRUSTED            => "trusted.",
-            xattr_index::LUSTRE             => "lustre.",
-            xattr_index::SECURITY           => "security.",
-            _                      => "",
-        }
-    }
 
     /// Parse all inline xattr entries for an inode.
     /// Returns a list of (full name bytes, value bytes).
@@ -315,7 +301,6 @@ impl EroFSCore {
         let mut cursor = binrw::io::Cursor::new(data);
         let header = XattrHeader::read(&mut cursor)?;
 
-        use crate::types::xattr_index;
         let header_sz =
             size_of::<XattrHeader>() + header.shared_count as usize * size_of::<u32>();
         if header_sz > total_size {
@@ -359,11 +344,14 @@ impl EroFSCore {
 
             ptr += entry_sz;
 
-            if entry.name_index & xattr_index::LONG_PREFIX != 0 {
+            if entry.name_index & XattrShortPrefixIndex::LONG_PREFIX != 0 {
                 continue; // long prefix: needs prefix table, skip for now
             }
 
-            let prefix = Self::xattr_short_prefix(entry.name_index);
+            let Ok(name_index) = XattrShortPrefixIndex::try_from(entry.name_index) else {
+                continue; // unknown index, skip
+            };
+            let prefix = name_index.prefix();
             let suffix = &data[name_start..value_start];
             let mut name = Vec::with_capacity(prefix.len() + suffix.len());
             name.extend_from_slice(prefix.as_bytes());

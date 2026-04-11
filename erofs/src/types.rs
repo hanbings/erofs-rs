@@ -21,20 +21,6 @@ pub const SB_EXTSLOT_SIZE: usize = 16;
 /// `feature_compat` flags
 pub const FEATURE_COMPAT_PLAIN_XATTR_PFX: u32 = 0x00000010;
 
-/// `EROFS_XATTR_INDEX_*` constants from erofs_fs.h "Name indexes"
-pub mod xattr_index {
-    pub const USER: u8             = 1;
-    pub const POSIX_ACL_ACCESS: u8 = 2;
-    pub const POSIX_ACL_DEFAULT: u8 = 3;
-    pub const TRUSTED: u8          = 4;
-    pub const LUSTRE: u8           = 5;
-    pub const SECURITY: u8         = 6;
-    /// bit 7 set → use long prefix table
-    pub const LONG_PREFIX: u8      = 0x80;
-    /// mask to get index into prefix table
-    pub const LONG_PREFIX_MASK: u8 = 0x7f;
-}
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, BinRead)]
 #[br(little)]
@@ -440,6 +426,52 @@ pub struct XattrEntry {
 pub struct XattrLongPrefix {
     pub base_index: u8,
     pub infix: alloc::vec::Vec<u8>,
+}
+
+/// EROFS xattr name index. Corresponds to `EROFS_XATTR_INDEX_*` in erofs_fs.h.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum XattrShortPrefixIndex {
+    User            = 1,
+    PosixAclAccess  = 2,
+    PosixAclDefault = 3,
+    Trusted         = 4,
+    Lustre          = 5,
+    Security        = 6,
+}
+
+impl XattrShortPrefixIndex {
+    /// bit 7 set → use long prefix table
+    pub const LONG_PREFIX: u8      = 0x80;
+    /// mask to get index into prefix table
+    pub const LONG_PREFIX_MASK: u8 = 0x7f;
+
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Self::User            => "user.",
+            Self::PosixAclAccess  => "system.posix_acl_access",
+            Self::PosixAclDefault => "system.posix_acl_default",
+            Self::Trusted         => "trusted.",
+            Self::Lustre          => "lustre.",
+            Self::Security        => "security.",
+        }
+    }
+}
+
+impl TryFrom<u8> for XattrShortPrefixIndex {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::User),
+            2 => Ok(Self::PosixAclAccess),
+            3 => Ok(Self::PosixAclDefault),
+            4 => Ok(Self::Trusted),
+            5 => Ok(Self::Lustre),
+            6 => Ok(Self::Security),
+            v => Err(v),
+        }
+    }
 }
 
 #[repr(C)]
