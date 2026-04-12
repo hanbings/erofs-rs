@@ -5,6 +5,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use alloc::{string::String, vec::Vec};
+
 use binrw::BinRead;
 use rustix::fs::FileType;
 
@@ -398,22 +400,44 @@ impl ChunkBasedFormat {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Xattr {
+    pub name: String,
+    pub value: Vec<u8>,
+}
+
 #[repr(C)]
-#[derive(Debug, Clone, Copy, BinRead)]
+#[derive(Debug, Clone, BinRead)]
 #[br(little)]
 pub struct XattrHeader {
     pub name_filter: u32,
     pub shared_count: u8,
     pub reserved: [u8; 7],
+    #[br(count = shared_count)]
+    pub shared_ids: Vec<u32>,
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, BinRead)]
+#[derive(Debug, Clone, BinRead)]
 #[br(little)]
 pub struct XattrEntry {
     pub name_len: u8,
     pub name_index: u8,
     pub value_len: u16,
+    #[br(count = name_len)]
+    pub name_suffix: Vec<u8>,
+    #[br(count = value_len)]
+    pub value: Vec<u8>,
+}
+
+impl XattrEntry {
+    #[inline]
+    pub fn padding(&self) -> usize {
+        // '4' mean: original fixed xattr entry size, without variable-length name_suffix and value.
+        let raw = 4 + self.name_suffix.len() + self.value.len();
+        // bytes needed to align to the next 4-byte boundary
+        raw.wrapping_neg() & 3
+    }
 }
 
 /// Runtime representation of a long xattr name prefix entry.
@@ -432,28 +456,28 @@ pub struct XattrLongPrefix {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum XattrShortPrefixIndex {
-    User            = 1,
-    PosixAclAccess  = 2,
+    User = 1,
+    PosixAclAccess = 2,
     PosixAclDefault = 3,
-    Trusted         = 4,
-    Lustre          = 5,
-    Security        = 6,
+    Trusted = 4,
+    Lustre = 5,
+    Security = 6,
 }
 
 impl XattrShortPrefixIndex {
     /// bit 7 set → use long prefix table
-    pub const LONG_PREFIX: u8      = 0x80;
+    pub const LONG_PREFIX: u8 = 0x80;
     /// mask to get index into prefix table
     pub const LONG_PREFIX_MASK: u8 = 0x7f;
 
     pub fn prefix(self) -> &'static str {
         match self {
-            Self::User            => "user.",
-            Self::PosixAclAccess  => "system.posix_acl_access",
+            Self::User => "user.",
+            Self::PosixAclAccess => "system.posix_acl_access",
             Self::PosixAclDefault => "system.posix_acl_default",
-            Self::Trusted         => "trusted.",
-            Self::Lustre          => "lustre.",
-            Self::Security        => "security.",
+            Self::Trusted => "trusted.",
+            Self::Lustre => "lustre.",
+            Self::Security => "security.",
         }
     }
 }
