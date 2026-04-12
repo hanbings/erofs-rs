@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 
 use binrw::BinRead;
 use rustix::fs::FileType;
@@ -402,7 +402,9 @@ impl ChunkBasedFormat {
 
 #[derive(Debug, Clone)]
 pub struct Xattr {
-    pub name: String,
+    /// full xattr name: prefix bytes + name suffix bytes, no null terminator
+    /// corresponds to kernel e_name_index prefix + e_name[]
+    pub name: Vec<u8>,
     pub value: Vec<u8>,
 }
 

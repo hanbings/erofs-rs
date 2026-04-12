@@ -252,10 +252,10 @@ impl EroFSCore {
             let Ok(name_index) = XattrShortPrefixIndex::try_from(entry.name_index) else {
                 return Ok(None);
             };
-            let prefix = name_index.prefix();
-            let suffix = core::str::from_utf8(&entry.name_suffix)
-                .map_err(|_| Error::CorruptedData("xattr name is not valid UTF-8".into()))?;
-            let name = format!("{}{}", prefix, suffix);
+            let prefix = name_index.prefix().as_bytes();
+            let mut name = Vec::with_capacity(prefix.len() + entry.name_suffix.len());
+            name.extend_from_slice(prefix);
+            name.extend_from_slice(&entry.name_suffix);
             Ok(Some(Xattr {
                 name,
                 value: entry.value,
