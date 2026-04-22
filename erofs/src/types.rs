@@ -409,36 +409,40 @@ pub struct Xattr {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, BinRead)]
+#[derive(Debug, Clone, Copy, BinRead)]
 #[br(little)]
 pub struct XattrHeader {
     pub name_filter: u32,
     pub shared_count: u8,
     pub reserved: [u8; 7],
-    #[br(count = shared_count)]
-    pub shared_ids: Vec<u32>,
+}
+
+impl XattrHeader {
+    #[inline]
+    pub const fn size() -> usize {
+        size_of::<Self>()
+    }
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, BinRead)]
+#[derive(Debug, Clone, Copy, BinRead)]
 #[br(little)]
 pub struct XattrEntry {
     pub name_len: u8,
     pub name_index: u8,
     pub value_len: u16,
-    #[br(count = name_len)]
-    pub name_suffix: Vec<u8>,
-    #[br(count = value_len)]
-    pub value: Vec<u8>,
 }
 
 impl XattrEntry {
     #[inline]
-    pub fn padding(&self) -> usize {
-        // '4' mean: original fixed xattr entry size, without variable-length name_suffix and value.
-        let raw = 4 + self.name_suffix.len() + self.value.len();
-        // bytes needed to align to the next 4-byte boundary
-        raw.wrapping_neg() & 3
+    pub const fn size() -> usize {
+        size_of::<Self>()
+    }
+
+    /// bytes needed to align `body_len` (name_suffix + value) to 4 bytes
+    #[inline]
+    pub fn padding(body_len: usize) -> usize {
+        (Self::size() + body_len).wrapping_neg() & 3
     }
 }
 
